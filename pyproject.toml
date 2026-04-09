@@ -37,6 +37,7 @@ dependencies = [
     "h5py",
     # Notebooks & visualization
     "jupyter",
+    "jupyterlab",
     "matplotlib",
     "seaborn",
     # Data wrangling
