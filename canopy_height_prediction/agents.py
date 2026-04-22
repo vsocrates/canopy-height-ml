@@ -182,6 +182,19 @@ Rationale must be specific, e.g.:
 Never write "rejected poor quality shots."
 """.strip()
 
+def _fc_to_gdf(fc):
+    """Download a GEE FeatureCollection to a GeoDataFrame, paginating in 5000-element chunks."""
+    import geopandas as gpd
+
+    total = fc.size().getInfo()
+    features = []
+    chunk = 5000
+    for offset in range(0, total, chunk):
+        page = fc.toList(min(chunk, total - offset), offset).getInfo()
+        features.extend(page)
+    return gpd.GeoDataFrame.from_features(features)
+
+
 def _load_gedi_shots(aoi, date_start: str, date_end: str):
     """
     Load GEDI L2A vector shots via the index collection.
@@ -367,7 +380,6 @@ def apply_quality_filters(
     Returns: accepted_shots, per-filter rejection counts.
     """
     import ee
-    import geemap
 
     deps = ctx.deps
     min_lon, min_lat, max_lon, max_lat = deps.aoi_bbox
@@ -383,9 +395,8 @@ def apply_quality_filters(
     )
     accepted = filtered.size().getInfo()
 
-    gdf = geemap.ee_to_geopandas(
-        filtered.select(["shot_number", "rh98", "sensitivity", "slope", "beam", "quality_flag"]),
-        selectors=["shot_number", "rh98", "sensitivity", "slope", "beam", "quality_flag"],
+    gdf = _fc_to_gdf(
+        filtered.select(["shot_number", "rh98", "sensitivity", "slope", "beam", "quality_flag"])
     )
     deps._filtered_shots = gdf
 
