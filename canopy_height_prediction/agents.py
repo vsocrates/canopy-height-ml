@@ -25,10 +25,6 @@ from canopy_height_prediction._models import (
 
 load_dotenv()
 
-if os.getenv("LOGFIRE_TOKEN"):
-    logfire.configure()
-    logfire.instrument_pydantic_ai()
-
 # Maximum GEDI shots sampled against S2 — XGBoost doesn't benefit beyond this.
 # Shots are randomly subsampled before GEE extraction when the ingestor returns more.
 _MAX_EXTRACTION_SHOTS = 5000

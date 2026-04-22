@@ -26,6 +26,7 @@ from canopy_height_prediction.state import PipelineState
 
 
 async def run_ingestor(state: PipelineState) -> PipelineState:
+    logfire.event("agent.ingestor.start", run_id=state.run_id)
     with logfire.span("runner.ingestor", run_id=state.run_id):
         deps = IngestorDeps(
             run_id=state.run_id,
@@ -49,6 +50,7 @@ async def run_ingestor(state: PipelineState) -> PipelineState:
 
 
 async def run_transformer(state: PipelineState) -> PipelineState:
+    logfire.event("agent.transformer.start", run_id=state.run_id)
     with logfire.span("runner.transformer", run_id=state.run_id):
         deps = TransformerDeps(
             run_id=state.run_id,
@@ -73,6 +75,7 @@ async def run_transformer(state: PipelineState) -> PipelineState:
 
 
 async def run_qa(state: PipelineState) -> PipelineState:
+    logfire.event("agent.qa.start", run_id=state.run_id)
     with logfire.span("runner.qa", run_id=state.run_id):
         deps = QADeps(
             run_id=state.run_id,
@@ -92,6 +95,7 @@ async def run_qa(state: PipelineState) -> PipelineState:
 
 
 async def run_orchestrator(state: PipelineState) -> PipelineState:
+    logfire.event("agent.orchestrator.start", run_id=state.run_id)
     with logfire.span("runner.orchestrator", run_id=state.run_id):
         deps = OrchestratorDeps(
             run_id=state.run_id,

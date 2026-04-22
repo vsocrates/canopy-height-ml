@@ -13,6 +13,7 @@ The orchestrator agent drives ingest → transform → QA with replan logic.
 import argparse
 import asyncio
 import json
+import os
 import uuid
 from pathlib import Path
 
@@ -66,7 +67,8 @@ async def _run(args: argparse.Namespace) -> None:
     import ee
     ee.Initialize(project="canopy-height-ml")
 
-    logfire.configure(send_to_logfire=False)
+    logfire.configure(send_to_logfire=bool(os.getenv("LOGFIRE_TOKEN")))
+    logfire.instrument_pydantic_ai()
 
     print(f"Starting pipeline  run_id={run_id}")
     state = await run_orchestrator(state)
