@@ -58,12 +58,6 @@ create_environment:
 #################################################################################
 
 
-## Make dataset
-.PHONY: data
-data: requirements
-	$(PYTHON_INTERPRETER) canopy_height_prediction/dataset.py
-
-
 #################################################################################
 # Self Documenting Commands                                                     #
 #################################################################################
