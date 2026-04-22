@@ -22,42 +22,9 @@ The entire ingest → transform → QA workflow is driven by a **multi-agent LLM
 
 ## Architecture
 
-```
-main.py  ──► run_orchestrator()
-                │
-                ▼
-        ┌───────────────────────────────────────────────┐
-        │            Orchestrator Agent                  │
-        │  (Claude Sonnet 4.6 via pydantic-ai)           │
-        │                                                 │
-        │  1. run_ingestor ──► Ingestor Agent            │
-        │     • query_gedi_earthengine (GEE)             │
-        │     • query_sentinel2 (GEE)                    │
-        │     • apply_quality_filters                    │
-        │     • write_raw_shots_to_db                    │
-        │                                                 │
-        │  2. run_transformer ──► Transformer Agent      │
-        │     • extract_sentinel_bands (GEE, parallel)   │
-        │     • compute_variogram                        │
-        │     • generate_spatial_blocks                  │
-        │     • assign_folds                             │
-        │     • write_cleaned_shots_to_db                │
-        │                                                 │
-        │  3. run_qa ──► QA Agent                        │
-        │     • read_cleaned_shots_from_db               │
-        │     • check_feature_distributions              │
-        │     • check_fold_balance                       │
-        │     • check_target_range                       │
-        │                                                 │
-        │  On failure: replan() ──► retry failed stage   │
-        │  Max replans exceeded: abort()                  │
-        └───────────────────────────────────────────────┘
-                │
-                ▼
-        PipelineState (dataclass)
-        SQLite via SQLAlchemy ORM
-        Logfire traces (per agent + tool)
-```
+<p align="center">
+  <img src="docs/figures/architecture.png" width="100%" alt="Pipeline architecture diagram"/>
+</p>
 
 The **Orchestrator** is the single entry point. It calls sub-agents as pydantic-ai tools, inspects their typed `passed` / `recommended_action` output, and applies adaptive replanning (`replan_widen_date`, `replan_relax_thresholds`) before retrying — up to `max_replans`. All intermediate state is persisted to SQLite so any stage can be inspected or replayed without re-running expensive GEE queries.
 
