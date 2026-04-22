@@ -208,13 +208,13 @@ def test_valid_obs_below_threshold_pct_calculation():
     should be counted correctly. We don't call extract_sentinel_bands directly
     (it hits GEE), so we replicate the calculation and assert MIN_VALID_OBS=3.
     """
-    counts = pd.Series([0, 1, 2, 3, 4, 5, 6, 7, 8, 9])  # 3 below threshold (0,1,2)
+    counts = pd.Series([0, 1, 2, 3, 4, 5, 6, 7, 8, 9])  # 2 below threshold (0,1)
     below = int((counts.fillna(0) < MIN_VALID_OBS).sum())
     below_pct = round(below / len(counts) * 100, 1)
 
-    assert MIN_VALID_OBS == 3
-    assert below == 3
-    assert below_pct == 30.0
+    assert MIN_VALID_OBS == 2
+    assert below == 2
+    assert below_pct == 20.0
 
 
 def test_valid_obs_below_threshold_pct_zero_when_all_valid():

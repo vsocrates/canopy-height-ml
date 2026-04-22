@@ -718,7 +718,7 @@ def _estimate_variogram_range(lats, lons, values, n_lags: int = 15, subsample: i
 # Transformer Agent + Tools
 # ---------------------------------------------------------------------------
 
-MIN_VALID_OBS = 3  # minimum clear-sky S2 scenes required for a reliable median composite
+MIN_VALID_OBS = 2  # minimum clear-sky S2 scenes required for a reliable median composite
 
 TRANSFORMER_SYSTEM_PROMPT = """
 You are the Transformer agent in a canopy height estimation pipeline.
