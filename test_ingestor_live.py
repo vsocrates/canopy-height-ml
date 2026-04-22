@@ -16,8 +16,8 @@ import ee
 from canopy_height_prediction.agents import IngestorDeps, ingestor_agent
 from canopy_height_prediction.db import GediShotRaw, PipelineRun, get_session, init_db
 
-# Small AOI: ~100km x 100km slice of northern California forests (Tahoe area)
-AOI_BBOX = (-120.5, 38.5, -119.5, 39.5)
+# ~400 km² slice of Tahoe National Forest — small enough to stay under GEE's 5000-element getInfo limit
+AOI_BBOX = (-120.4, 39.2, -120.2, 39.4)
 DATE_START = "2023-01-01"
 DATE_END = "2023-04-01"  # GEDI decommissioned early 2024; use historical data
 
