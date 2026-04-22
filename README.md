@@ -23,7 +23,7 @@ The entire ingest → transform → QA workflow is driven by a **multi-agent LLM
 ## Architecture
 
 <p align="center">
-  <img src="docs/figures/architecture.png" width="100%" alt="Pipeline architecture diagram"/>
+  <img src="docs/figures/architecture.svg" width="100%" alt="Pipeline architecture diagram"/>
 </p>
 
 The **Orchestrator** is the single entry point. It calls sub-agents as pydantic-ai tools, inspects their typed `passed` / `recommended_action` output, and applies adaptive replanning (`replan_widen_date`, `replan_relax_thresholds`) before retrying — up to `max_replans`. All intermediate state is persisted to SQLite so any stage can be inspected or replayed without re-running expensive GEE queries.
