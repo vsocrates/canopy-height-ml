@@ -29,6 +29,14 @@ if os.getenv("LOGFIRE_TOKEN"):
     logfire.configure()
     logfire.instrument_pydantic_ai()
 
+# Maximum GEDI shots sampled against S2 — XGBoost doesn't benefit beyond this.
+# Shots are randomly subsampled before GEE extraction when the ingestor returns more.
+_MAX_EXTRACTION_SHOTS = 5000
+# Shots per sampleRegions request — keeps GEE payload under 10 MB.
+_SAMPLE_BATCH = 500
+# Concurrent GEE batch requests (GEE REST API supports parallel interactive calls).
+_SAMPLE_WORKERS = 8
+
 
 # ---------------------------------------------------------------------------
 # Ingestor Agent + Tools
@@ -509,6 +517,8 @@ Tool call sequence:
    - If valid_obs_below_threshold_pct > 50%, set passed=False, recommended_action="replan_widen_date"
      (too many shots have fewer than min_valid_obs_used clear-sky scenes — composite unreliable).
    - If valid_obs_below_threshold_pct > 20%, add a warning but continue.
+   - If the result contains an "error" key, set passed=False,
+     recommended_action="replan_widen_date", and do not call any other tools.
    - Do NOT proceed to variogram if either failure condition is met.
 2. Call compute_variogram — inspect range_km.
    The CV block size MUST exceed the variogram range to prevent spatial leakage.
@@ -549,87 +559,116 @@ def extract_sentinel_bands(ctx: RunContext[TransformerDeps]) -> dict:
 
     deps = ctx.deps
 
-    with get_session() as session:
-        rows = session.query(GediShotRaw).filter_by(run_id=deps.run_id).all()
+    try:
+        with get_session() as session:
+            rows = session.query(GediShotRaw).filter_by(run_id=deps.run_id).all()
 
-    if not rows:
-        return {"error": f"No raw shots found for run_id={deps.run_id}"}
+        if not rows:
+            return {"error": f"No raw shots found for run_id={deps.run_id}"}
 
-    n_shots = len(rows)
+        n_shots_total = len(rows)
 
-    features = [
-        ee.Feature(
-            ee.Geometry.Point([r.lon, r.lat]),
-            {"shot_id": r.shot_id, "rh98": r.rh98 or 0.0},
+        if n_shots_total > _MAX_EXTRACTION_SHOTS:
+            import random
+            rows = random.sample(rows, _MAX_EXTRACTION_SHOTS)
+            print(f"  Subsampled {n_shots_total} → {_MAX_EXTRACTION_SHOTS} shots before GEE extraction", flush=True)
+
+        n_shots = len(rows)
+
+        features = [
+            ee.Feature(
+                ee.Geometry.Point([r.lon, r.lat]),
+                {"shot_id": r.shot_id, "rh98": r.rh98 or 0.0},
+            )
+            for r in rows
+        ]
+        fc = ee.FeatureCollection(features)
+
+        min_lon, min_lat, max_lon, max_lat = deps.aoi_bbox
+        aoi = ee.Geometry.Rectangle([min_lon, min_lat, max_lon, max_lat])
+
+        s2_col = (
+            ee.ImageCollection("COPERNICUS/S2_SR_HARMONIZED")
+            .filterBounds(aoi)
+            .filterDate(deps.date_start, deps.date_end)
         )
-        for r in rows
-    ]
-    fc = ee.FeatureCollection(features)
 
-    min_lon, min_lat, max_lon, max_lat = deps.aoi_bbox
-    aoi = ee.Geometry.Rectangle([min_lon, min_lat, max_lon, max_lat])
+        # Count scenes where SCL indicates clear land (4=veg, 5=bare soil, 6=water, 7=unclassified).
+        # All other classes (0=no data, 1=saturated, 2=dark, 3=shadow, 8-11=cloud/snow) are invalid.
+        valid_obs_count = (
+            s2_col.select("SCL")
+            .map(lambda img: img.remap([4, 5, 6, 7], [1, 1, 1, 1], 0).rename("valid_obs"))
+            .sum()
+            .rename("valid_obs_count")
+        )
 
-    s2_col = (
-        ee.ImageCollection("COPERNICUS/S2_SR_HARMONIZED")
-        .filterBounds(aoi)
-        .filterDate(deps.date_start, deps.date_end)
-    )
+        s2 = s2_col.select(["B2", "B3", "B4", "B8", "B11", "B12"]).median()
+        ndvi = s2.normalizedDifference(["B8", "B4"]).rename("ndvi")
+        evi = s2.expression(
+            "2.5 * (B8 - B4) / (B8 + 6 * B4 - 7.5 * B2 + 10000)",
+            {"B8": s2.select("B8"), "B4": s2.select("B4"), "B2": s2.select("B2")},
+        ).rename("evi")
+        image = s2.addBands([ndvi, evi, valid_obs_count])
 
-    # Count scenes where SCL indicates clear land (4=veg, 5=bare soil, 6=water, 7=unclassified).
-    # All other classes (0=no data, 1=saturated, 2=dark, 3=shadow, 8-11=cloud/snow) are invalid.
-    valid_obs_count = (
-        s2_col.select("SCL")
-        .map(lambda img: img.remap([4, 5, 6, 7], [1, 1, 1, 1], 0).rename("valid_obs"))
-        .sum()
-        .rename("valid_obs_count")
-    )
+        # sampleRegions serializes the entire fc into the GEE request; batching keeps
+        # each request under GEE's 10MB payload limit. Batches run in parallel via
+        # ThreadPoolExecutor — GEE's REST API supports concurrent interactive requests.
+        from concurrent.futures import ThreadPoolExecutor
+        import geopandas as gpd
 
-    s2 = s2_col.select(["B2", "B3", "B4", "B8", "B11", "B12"]).median()
-    ndvi = s2.normalizedDifference(["B8", "B4"]).rename("ndvi")
-    evi = s2.expression(
-        "2.5 * (B8 - B4) / (B8 + 6 * B4 - 7.5 * B2 + 1e-10)",
-        {"B8": s2.select("B8"), "B4": s2.select("B4"), "B2": s2.select("B2")},
-    ).rename("evi")
-    image = s2.addBands([ndvi, evi, valid_obs_count])
+        batches = [features[i:i + _SAMPLE_BATCH] for i in range(0, len(features), _SAMPLE_BATCH)]
+        n_batches = len(batches)
 
-    sampled = image.sampleRegions(collection=fc, scale=10, geometries=True)
-    gdf = _fc_to_gdf(sampled)
+        def _run_batch(args: tuple) -> "gpd.GeoDataFrame":
+            batch_num, batch = args
+            print(f"  sampleRegions batch {batch_num}/{n_batches} ({len(batch)} shots)", flush=True)
+            batch_fc = ee.FeatureCollection(batch)
+            sampled = image.sampleRegions(collection=batch_fc, scale=20, geometries=True, tileScale=4)
+            return _fc_to_gdf(sampled)
 
-    # Extract lat/lon from geometry, build clean DataFrame
-    shot_lookup = {r.shot_id: (r.lat, r.lon) for r in rows}
-    records = []
-    band_cols = ["B2", "B3", "B4", "B8", "B11", "B12", "ndvi", "evi", "valid_obs_count"]
-    for _, feat in gdf.iterrows():
-        sid = str(feat.get("shot_id", ""))
-        rh98 = feat.get("rh98")
-        geom = feat.get("geometry")
-        lat = geom.y if geom else (shot_lookup.get(sid, (None, None))[0])
-        lon = geom.x if geom else (shot_lookup.get(sid, (None, None))[1])
-        rec = {"shot_id": sid, "lat": lat, "lon": lon, "rh98": rh98}
-        for b in band_cols:
-            rec[b] = feat.get(b)
-        records.append(rec)
+        with ThreadPoolExecutor(max_workers=min(_SAMPLE_WORKERS, n_batches)) as pool:
+            gdfs = list(pool.map(_run_batch, enumerate(batches, start=1)))
 
-    df = pd.DataFrame(records)
-    n_matched = int(df[["B8", "B4"]].notna().all(axis=1).sum())
-    nan_rate = round((1 - n_matched / n_shots) * 100, 1) if n_shots > 0 else 0.0
+        gdf = pd.concat(gdfs, ignore_index=True) if gdfs else gpd.GeoDataFrame()
 
-    below = int((df["valid_obs_count"].fillna(0) < MIN_VALID_OBS).sum())
-    below_pct = round(below / n_shots * 100, 1) if n_shots > 0 else 0.0
+        # Extract lat/lon from geometry, build clean DataFrame
+        shot_lookup = {r.shot_id: (r.lat, r.lon) for r in rows}
+        records = []
+        band_cols = ["B2", "B3", "B4", "B8", "B11", "B12", "ndvi", "evi", "valid_obs_count"]
+        for _, feat in gdf.iterrows():
+            sid = str(feat.get("shot_id", ""))
+            rh98 = feat.get("rh98")
+            geom = feat.get("geometry")
+            lat = geom.y if geom else (shot_lookup.get(sid, (None, None))[0])
+            lon = geom.x if geom else (shot_lookup.get(sid, (None, None))[1])
+            rec = {"shot_id": sid, "lat": lat, "lon": lon, "rh98": rh98}
+            for b in band_cols:
+                rec[b] = feat.get(b)
+            records.append(rec)
 
-    deps._matched_df = df
+        df = pd.DataFrame(records)
+        n_matched = int(df[["B8", "B4"]].notna().all(axis=1).sum())
+        nan_rate = round((1 - n_matched / n_shots) * 100, 1) if n_shots > 0 else 0.0
 
-    preview = df[["shot_id", "rh98", "B8", "B4", "ndvi", "valid_obs_count"]].head(3).to_dict(
-        orient="records"
-    )
-    return {
-        "n_shots": n_shots,
-        "n_matched": n_matched,
-        "nan_rate_pct": nan_rate,
-        "valid_obs_below_threshold_pct": below_pct,
-        "min_valid_obs_used": MIN_VALID_OBS,
-        "band_preview": preview,
-    }
+        below = int((df["valid_obs_count"].fillna(0) < MIN_VALID_OBS).sum())
+        below_pct = round(below / n_shots * 100, 1) if n_shots > 0 else 0.0
+
+        deps._matched_df = df
+
+        preview = df[["shot_id", "rh98", "B8", "B4", "ndvi", "valid_obs_count"]].head(3).to_dict(
+            orient="records"
+        )
+        return {
+            "n_shots_total_accepted": n_shots_total,
+            "n_shots_sampled": n_shots,
+            "n_matched": n_matched,
+            "nan_rate_pct": nan_rate,
+            "valid_obs_below_threshold_pct": below_pct,
+            "min_valid_obs_used": MIN_VALID_OBS,
+            "band_preview": preview,
+        }
+    except Exception as e:
+        return {"error": f"GEE extraction failed: {e}"}
 
 
 @transformer_agent.tool
@@ -670,6 +709,7 @@ def generate_spatial_blocks(
     Stores block_id on deps._matched_df (in-place). Must be called after
     compute_variogram. Returns n_blocks and shots-per-block statistics.
     """
+    import math
     import numpy as np
 
     deps = ctx.deps
@@ -679,6 +719,14 @@ def generate_spatial_blocks(
 
     min_lon, min_lat, max_lon, max_lat = deps.aoi_bbox
     mean_lat_rad = float(np.deg2rad((min_lat + max_lat) / 2))
+
+    aoi_width_km = (max_lon - min_lon) * 111.0 * float(np.cos(mean_lat_rad))
+    aoi_height_km = (max_lat - min_lat) * 111.0
+    min_blocks_per_side = math.ceil((deps.n_folds + 1) ** 0.5)
+    max_allowed_km = min(aoi_width_km, aoi_height_km) / min_blocks_per_side
+    requested_block_size_km = block_size_km
+    if block_size_km > max_allowed_km:
+        block_size_km = max_allowed_km
 
     deg_lat_per_km = 1.0 / 111.0
     deg_lon_per_km = 1.0 / (111.0 * float(np.cos(mean_lat_rad)))
@@ -692,13 +740,21 @@ def generate_spatial_blocks(
     df["block_id"] = block_y * n_blocks_x + block_x
 
     block_counts = df["block_id"].value_counts()
-    return {
+    result = {
         "block_size_km": block_size_km,
         "n_blocks_occupied": int(block_counts.shape[0]),
         "shots_per_block_mean": round(float(block_counts.mean()), 1),
         "shots_per_block_min": int(block_counts.min()),
         "shots_per_block_max": int(block_counts.max()),
     }
+    if block_size_km != requested_block_size_km:
+        result["block_size_km_capped"] = True
+        result["block_size_km_requested"] = requested_block_size_km
+        result["note"] = (
+            f"block_size_km capped from {requested_block_size_km:.1f} to {block_size_km:.1f} km "
+            f"to ensure ≥{min_blocks_per_side}×{min_blocks_per_side} blocks for {deps.n_folds} folds."
+        )
+    return result
 
 
 @transformer_agent.tool

@@ -60,6 +60,12 @@ async def _run(args: argparse.Namespace) -> None:
         n_folds=args.n_folds,
     )
 
+    from canopy_height_prediction.db import init_db
+    init_db()
+
+    import ee
+    ee.Initialize(project="canopy-height-ml")
+
     logfire.configure(send_to_logfire=False)
 
     print(f"Starting pipeline  run_id={run_id}")
@@ -92,6 +98,24 @@ async def _run(args: argparse.Namespace) -> None:
         print(f"Results written to {args.output}")
 
 
+def _fix_argv_negative_bbox(argv: list[str]) -> list[str]:
+    """
+    Argparse rejects values starting with '-' that aren't valid numbers.
+    A bbox like '-122.5,37.5,-121.5,38.5' triggers this. Merge '--bbox VALUE'
+    into '--bbox=VALUE' so argparse sees it as a single token.
+    """
+    out = []
+    i = 0
+    while i < len(argv):
+        if argv[i] == "--bbox" and i + 1 < len(argv) and not argv[i + 1].startswith("--"):
+            out.append(f"--bbox={argv[i + 1]}")
+            i += 2
+        else:
+            out.append(argv[i])
+            i += 1
+    return out
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Canopy height estimation pipeline (GEDI + Sentinel-2 → XGBoost)",
@@ -111,7 +135,8 @@ def main() -> None:
     parser.add_argument("--save-figs", default=None, metavar="DIR",
                         help="Write diagnostic PNG figures to this directory (only when QA passes)")
 
-    args = parser.parse_args()
+    import sys
+    args = parser.parse_args(_fix_argv_negative_bbox(sys.argv[1:]))
     asyncio.run(_run(args))
 
 
