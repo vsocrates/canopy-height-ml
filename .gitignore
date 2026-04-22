@@ -22,8 +22,5 @@ models/
 # Notebooks checkpoints
 .ipynb_checkpoints/
 
-# Pipeline run outputs (runtime artifacts)
-output/
-
 # OS
 .DS_Store

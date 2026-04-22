@@ -1,0 +1,29 @@
+{
+  "run_id": "run-ec14c4a0",
+  "aoi_bbox": [
+    -120.5,
+    38.5,
+    -119.5,
+    39.5
+  ],
+  "date_range": [
+    "2022-06-01",
+    "2022-09-01"
+  ],
+  "ingestor_passed": true,
+  "transformer_passed": true,
+  "qa_passed": true,
+  "replan_count": 0,
+  "decision_log": [
+    {
+      "agent": "orchestrator",
+      "action": "proceed",
+      "rationale": "All three pipeline stages passed successfully with no replanning required:\n\n**Ingestor \u2705** \u2014 Ingested 177,310 raw GEDI shots and accepted 89,400 (49.6% accepted) using sensitivity_min=0.95 and slope_max_deg=30\u00b0. Shot density is 9.3 shots/km\u00b2 over a 9,608 km\u00b2 AOI, which is sufficient for modeling. Sentinel-2 coverage is solid with 142 scenes and 20.4% mean cloud cover.\n\n**Transformer \u2705** \u2014 Matched GEDI shots to Sentinel-2 bands with a 0.0% NaN rate. Spatial CV blocks were computed at 28.75 km (capped from 43.4 km to guarantee \u2265 3\u00d73 blocks). 5,000 cleaned shots were written across 5 folds (train: 4,338 | test: 662) to gedi_shots_cleaned.\n\n**QA \u2705** \u2014 All four QA checks passed: clean feature distributions across all 8 S2 bands (0% NaN), all 5 folds within acceptable balance range (13.2%\u201328.9%), and rh98 target range of [2.31m, 74.12m] with only 0.1% implausibly high values (well below the 10% threshold). Dataset is clean and ready for model training.",
+      "final_date_start": null,
+      "final_date_end": null,
+      "final_sensitivity_min": 0.95,
+      "final_slope_max_deg": 30.0,
+      "replan_count": 0
+    }
+  ]
+}
