@@ -1,171 +1,33 @@
-from dataclasses import dataclass, field
 import os
-from typing import Literal, Optional
 
 import logfire
 from dotenv import load_dotenv
-from pydantic import BaseModel, Field
 from pydantic_ai import Agent, RunContext
+
+from canopy_height_prediction._helpers import (
+    MIN_VALID_OBS,
+    _estimate_variogram_range,
+    _fc_to_gdf,
+    _load_gedi_shots,
+)
+from canopy_height_prediction._models import (
+    GediQueryResult,
+    IngestorDecision,
+    IngestorDeps,
+    OrchestratorDecision,
+    OrchestratorDeps,
+    QADecision,
+    QADeps,
+    Sentinel2QueryResult,
+    TransformerDecision,
+    TransformerDeps,
+)
 
 load_dotenv()
 
 if os.getenv("LOGFIRE_TOKEN"):
     logfire.configure()
     logfire.instrument_pydantic_ai()
-
-# ---------------------------------------------------------------------------
-# GEE Tool Return Models
-# ---------------------------------------------------------------------------
-
-
-class GediQueryResult(BaseModel):
-    """Return type of query_gedi_earthengine tool."""
-
-    total_shots: int
-    aoi_area_km2: float
-    raw_shot_density_per_km2: float
-    # Each bin is [bin_center, count] — 10 bins per histogram
-    rh98_histogram: list[list]
-    sensitivity_histogram: list[list]
-    slope_histogram: list[list]
-    quality_flag_counts: dict[str, int]
-
-
-class Sentinel2QueryResult(BaseModel):
-    """Return type of query_sentinel2 tool."""
-
-    scene_count: int
-    mean_cloud_cover_pct: float
-    temporal_coverage_days: Optional[int]
-    bands_available: list[str]
-
-
-# ---------------------------------------------------------------------------
-# Ingestor — Deps + Output
-# ---------------------------------------------------------------------------
-
-
-@dataclass
-class IngestorDeps:
-    run_id: str
-    aoi_bbox: tuple                          # (min_lon, min_lat, max_lon, max_lat)
-    date_start: str
-    date_end: str
-    replan_count: int = 0                    # agent is more lenient when > 0
-    sensitivity_min_suggested: float = 0.95
-    slope_max_deg_suggested: float = 30.0
-    min_shot_density_per_km2: float = 1.0
-    gee_project: str = "canopy-height-ml"
-    # Populated by apply_quality_filters tool so write_raw_shots_to_db can access it
-    _filtered_shots: Optional[object] = field(default=None, repr=False)
-
-
-class IngestorDecision(BaseModel):
-    passed: bool
-    sensitivity_min: float
-    slope_max_deg: float
-    raw_shots: int
-    accepted_shots: int
-    rationale: str
-    recommended_action: Literal[
-        "proceed",
-        "replan_widen_date",
-        "replan_relax_thresholds",
-        "abort",
-    ]
-    warnings: list[str] = Field(default_factory=list)
-
-
-# ---------------------------------------------------------------------------
-# Transformer — Deps + Output (stub)
-# ---------------------------------------------------------------------------
-
-
-@dataclass
-class TransformerDeps:
-    run_id: str
-    aoi_bbox: tuple
-    date_start: str
-    date_end: str
-    replan_count: int = 0
-    n_folds: int = 5
-    gee_project: str = "canopy-height-ml"
-    # Populated by extract_sentinel_bands; consumed by compute_variogram / assign_folds
-    _matched_df: Optional[object] = field(default=None, repr=False)
-    # Populated by assign_folds; consumed by write_cleaned_shots_to_db
-    _folded_df: Optional[object] = field(default=None, repr=False)
-
-
-class TransformerDecision(BaseModel):
-    passed: bool
-    cv_block_size_km: float
-    n_folds: int
-    rationale: str
-    recommended_action: Literal[
-        "proceed",
-        "replan_widen_date",
-        "replan_relax_thresholds",
-        "abort",
-    ]
-    warnings: list[str] = Field(default_factory=list)
-
-
-# ---------------------------------------------------------------------------
-# QA — Deps + Output (stub)
-# ---------------------------------------------------------------------------
-
-
-@dataclass
-class QADeps:
-    run_id: str
-    replan_count: int = 0
-    r2_threshold: float = 0.6
-    rmse_threshold_m: float = 5.0
-    # Populated by read_cleaned_shots_from_db; consumed by check_* tools
-    _cleaned_df: Optional[object] = field(default=None, repr=False)
-
-
-class QADecision(BaseModel):
-    passed: bool
-    issues: list[str] = Field(default_factory=list)
-    rationale: str
-    recommended_action: Literal[
-        "proceed",
-        "replan_widen_date",
-        "replan_relax_thresholds",
-        "abort",
-    ]
-
-
-# ---------------------------------------------------------------------------
-# Orchestrator — Deps + Output (stub)
-# ---------------------------------------------------------------------------
-
-
-@dataclass
-class OrchestratorDeps:
-    run_id: str
-    aoi_bbox: tuple
-    date_start: str
-    date_end: str
-    max_replans: int = 3
-    replan_count: int = 0
-    # Mutable thresholds — updated in place by the replan tool
-    sensitivity_min: float = 0.95
-    slope_max_deg: float = 30.0
-    n_folds: int = 5
-    min_shot_density_per_km2: float = 1.0
-    gee_project: str = "canopy-height-ml"
-
-
-class OrchestratorDecision(BaseModel):
-    action: Literal["proceed", "replan", "abort"]
-    rationale: str
-    final_date_start: Optional[str] = None
-    final_date_end: Optional[str] = None
-    final_sensitivity_min: Optional[float] = None
-    final_slope_max_deg: Optional[float] = None
-    replan_count: int = 0
 
 
 # ---------------------------------------------------------------------------
@@ -196,42 +58,6 @@ Rationale must be specific, e.g.:
 "Accepted 4,200/6,800 shots — rejected 38% sensitivity < 0.95, 12% slope > 28°, 8% no S2 match."
 Never write "rejected poor quality shots."
 """.strip()
-
-def _fc_to_gdf(fc):
-    """Download a GEE FeatureCollection to a GeoDataFrame, paginating in 5000-element chunks."""
-    import geopandas as gpd
-
-    total = fc.size().getInfo()
-    features = []
-    chunk = 5000
-    for offset in range(0, total, chunk):
-        page = fc.toList(min(chunk, total - offset), offset).getInfo()
-        features.extend(page)
-    return gpd.GeoDataFrame.from_features(features)
-
-
-def _load_gedi_shots(aoi, date_start: str, date_end: str):
-    """
-    Load GEDI L2A vector shots via the index collection.
-    LARSE/GEDI/GEDI02_A_002 is an IndexedFolder — it must be accessed by
-    querying the index first, then merging the matching sub-collections.
-    """
-    import ee
-
-    # filterDate() doesn't work on this index — features store dates in a
-    # 'time_start' property, not system:time_start. Use property filters instead.
-    index = (
-        ee.FeatureCollection("LARSE/GEDI/GEDI02_A_002_INDEX")
-        .filterBounds(aoi)
-        .filter(ee.Filter.gte("time_start", date_start))
-        .filter(ee.Filter.lt("time_start", date_end))
-    )
-    table_ids = index.aggregate_array("table_id").getInfo()
-    if not table_ids:
-        return ee.FeatureCollection([])
-    tables = [ee.FeatureCollection(tid).filterBounds(aoi) for tid in table_ids]
-    return ee.FeatureCollection(tables).flatten()
-
 
 ingestor_agent: Agent[IngestorDeps, IngestorDecision] = Agent(
     "anthropic:claude-sonnet-4-6",
@@ -666,68 +492,8 @@ def check_target_range(ctx: RunContext[QADeps]) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Transformer helpers
-# ---------------------------------------------------------------------------
-
-
-def _estimate_variogram_range(lats, lons, values, n_lags: int = 15, subsample: int = 2000):
-    """
-    Compute a binned experimental variogram and return the estimated range in km.
-    Uses flat-earth approximation (fine for AOIs < ~500km across).
-    Returns (range_km, bin_centers, bin_semivariances).
-    """
-    import numpy as np
-
-    lats = np.asarray(lats, dtype=float)
-    lons = np.asarray(lons, dtype=float)
-    values = np.asarray(values, dtype=float)
-
-    n = len(lats)
-    if n > subsample:
-        rng = np.random.default_rng(42)
-        idx = rng.choice(n, subsample, replace=False)
-        lats, lons, values = lats[idx], lons[idx], values[idx]
-        n = subsample
-
-    mean_lat_rad = np.deg2rad(np.mean(lats))
-    dx = (lons[:, None] - lons[None, :]) * 111.0 * np.cos(mean_lat_rad)
-    dy = (lats[:, None] - lats[None, :]) * 111.0
-    dist_km = np.sqrt(dx**2 + dy**2)
-
-    diff = values[:, None] - values[None, :]
-    sv = 0.5 * diff**2
-
-    triu = np.triu_indices(n, k=1)
-    dist_flat = dist_km[triu]
-    sv_flat = sv[triu]
-
-    max_lag = float(np.percentile(dist_flat, 50))
-    bins = np.linspace(0, max_lag, n_lags + 1)
-    bin_centers, bin_sv = [], []
-    for k in range(n_lags):
-        mask = (dist_flat >= bins[k]) & (dist_flat < bins[k + 1])
-        if mask.sum() >= 5:
-            bin_centers.append(round(float((bins[k] + bins[k + 1]) / 2), 3))
-            bin_sv.append(round(float(np.mean(sv_flat[mask])), 4))
-
-    if not bin_sv:
-        return 5.0, [], []
-
-    sill = max(bin_sv)
-    range_km = bin_centers[-1]
-    for center, sv_val in zip(bin_centers, bin_sv):
-        if sv_val >= 0.95 * sill:
-            range_km = center
-            break
-
-    return round(range_km, 2), bin_centers, bin_sv
-
-
-# ---------------------------------------------------------------------------
 # Transformer Agent + Tools
 # ---------------------------------------------------------------------------
-
-MIN_VALID_OBS = 2  # minimum clear-sky S2 scenes required for a reliable median composite
 
 TRANSFORMER_SYSTEM_PROMPT = """
 You are the Transformer agent in a canopy height estimation pipeline.
@@ -777,7 +543,6 @@ def extract_sentinel_bands(ctx: RunContext[TransformerDeps]) -> dict:
     Returns: n_shots, n_matched, nan_rate_pct, band_preview (first 3 rows).
     """
     import ee
-    import numpy as np
     import pandas as pd
 
     from canopy_height_prediction.db import GediShotRaw, get_session
@@ -875,8 +640,6 @@ def compute_variogram(ctx: RunContext[TransformerDeps]) -> dict:
     extract_sentinel_bands. Returns range_km and the variogram histogram.
     The CV block size should exceed this range to prevent spatial leakage.
     """
-    import numpy as np
-
     deps = ctx.deps
     df = deps._matched_df
     if df is None:
