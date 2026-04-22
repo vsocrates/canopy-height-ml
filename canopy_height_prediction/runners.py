@@ -115,5 +115,11 @@ async def run_orchestrator(state: PipelineState) -> PipelineState:
             state.date_range = (d.final_date_start, state.date_range[1])
         if d.final_date_end:
             state.date_range = (state.date_range[0], d.final_date_end)
+        # Sub-agent pass/fail flags are only set when runners are called directly;
+        # when the orchestrator owns the run, derive them from its final decision.
+        if d.action == "proceed":
+            state.ingestor_passed = True
+            state.transformer_passed = True
+            state.qa_passed = True
         state.decision_log.append({"agent": "orchestrator", **d.model_dump()})
     return state
