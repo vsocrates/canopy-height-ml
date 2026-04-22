@@ -59,7 +59,7 @@ main.py  ──► run_orchestrator()
         Logfire traces (per agent + tool)
 ```
 
-The **Orchestrator** is the single entry point. It calls sub-agents as pydantic-ai tools, inspects their pass/fail decisions, and applies adaptive replanning (widen date range, relax quality thresholds) before retrying. All intermediate state is persisted to SQLite so any stage can be inspected or replayed.
+The **Orchestrator** is the single entry point. It calls sub-agents as pydantic-ai tools, inspects their typed `passed` / `recommended_action` output, and applies adaptive replanning (`replan_widen_date`, `replan_relax_thresholds`) before retrying — up to `max_replans`. All intermediate state is persisted to SQLite so any stage can be inspected or replayed without re-running expensive GEE queries.
 
 ---
 
@@ -72,14 +72,13 @@ The **Orchestrator** is the single entry point. It calls sub-agents as pydantic-
 | **Transformer** | Sample S2 bands at shot locations; estimate spatial autocorrelation; assign spatial CV folds | `extract_sentinel_bands`, `compute_variogram`, `generate_spatial_blocks`, `assign_folds` |
 | **QA** | Validate feature completeness, EVI/NDVI range, fold balance before training | `check_feature_distributions`, `check_fold_balance`, `check_target_range` |
 
-Each agent returns a typed Pydantic output model (`IngestorDecision`, `TransformerDecision`, etc.) with structured `passed`, `rationale`, `recommended_action`, and `warnings` fields.
+Each agent returns a typed Pydantic output model (`IngestorDecision`, `TransformerDecision`, etc.) with `passed`, `rationale`, `recommended_action`, and `warnings` fields — the LLM cannot return a structurally invalid decision. GEE tools catch all exceptions and return `{"error": "..."}` dicts so the orchestrator receives a structured failure signal rather than triggering an unintended LLM retry.
 
 ---
 
 ## Sample Output
 
-GEDI shots colored by `rh98` (canopy height in metres) over the Sierra Nevada, CA.
-Spatial CV folds assigned via variogram-driven block size (blocks exceed autocorrelation range to prevent spatial leakage):
+GEDI shots colored by `rh98` (canopy height in metres) over the Sierra Nevada, CA. Spatial CV folds are assigned using a variogram-estimated block size (≥1.5× autocorrelation range) to ensure training and validation sets are spatially decorrelated — a critical guard against optimistic CV scores in geospatial ML:
 
 <p align="center">
   <img src="docs/figures/shot_map.png" width="48%" alt="GEDI shots colored by rh98"/>
@@ -99,28 +98,6 @@ Spatial CV folds assigned via variogram-driven block size (blocks exceed autocor
 | **[pytest](https://pytest.org)** | 88 tests across unit (mocked tools), integration (live GEE), and runner layers |
 | **[geopandas](https://geopandas.org) + [contextily](https://contextily.readthedocs.io)** | Spatial DataFrames + tile basemaps for diagnostic figures |
 | **[uv](https://github.com/astral-sh/uv)** | Fast dependency management and virtual environments |
-
----
-
-## Data Engineering Highlights
-
-**Agentic replanning**
-The orchestrator inspects each stage's `recommended_action` (`replan_widen_date`, `replan_relax_thresholds`, `abort`) and retries with updated parameters — up to a configurable `max_replans` limit. This eliminates brittle hardcoded retry logic in favour of LLM-reasoned decisions with full audit trails in the decision log.
-
-**Spatial cross-validation**
-A binned empirical variogram on `rh98` estimates the spatial autocorrelation range. Block size is set to ≥1.5× that range so training and validation sets are spatially decorrelated. Block size is also geometrically capped so the AOI always yields ≥ `n_folds+1` occupied blocks. This is a critical guard against optimistic CV scores in spatial prediction tasks.
-
-**GEE extraction performance**
-`sampleRegions` requests are batched at 500 shots (GEE 10MB payload limit) and executed concurrently via `ThreadPoolExecutor`. Scale is set to 20m (S2 B11/B12 native resolution) with `tileScale=4`. Shots are subsampled to 5,000 before extraction — sufficient for XGBoost, avoids 100+ sequential GEE calls.
-
-**Type-safe agent interfaces**
-Every agent's inputs (`IngestorDeps`, `TransformerDeps`, etc.) and outputs (`IngestorDecision`, `TransformerDecision`, etc.) are Pydantic models with `Literal` action enums and explicit field validation. The LLM cannot return a structurally invalid decision.
-
-**Resilient tool design**
-GEE tools catch all exceptions and return `{"error": "..."}` dicts rather than raising. This prevents pydantic-ai from surfacing the exception back to the LLM as a tool error, which would trigger an unintended retry. The system prompt instructs the agent to treat error-keyed results as explicit failure signals.
-
-**DB-backed state + observability**
-Every raw shot, cleaned shot, and agent decision is written to SQLite via SQLAlchemy ORM. Logfire spans wrap each agent run; tool-level `logfire.info()` events fire immediately on tool entry for real-time pipeline visibility. Both layers make post-run debugging feasible without re-running expensive GEE queries.
 
 ---
 
@@ -153,6 +130,15 @@ uv run pytest tests/ -v   # 88 tests: unit + integration (live GEE)
 ```
 
 Tests are layered: **unit tests** mock agent tools and assert decision logic; **integration tests** hit live GEE endpoints with small seeded datasets; **runner tests** verify `PipelineState` writeback for each agent.
+
+---
+
+## Design Notes
+
+- **GEE extraction**: `sampleRegions` batches 500 shots per request (payload limit) and runs batches concurrently via `ThreadPoolExecutor`. Shots are capped at 5,000 before extraction — sufficient for XGBoost without 100+ sequential GEE calls. Scale is 20m with `tileScale=4`.
+- **Spatial CV block size**: geometrically capped so the AOI always yields ≥ `n_folds+1` occupied blocks, preventing fold imbalance when the variogram range is large relative to the AOI.
+- **Replanning audit trail**: every agent decision (rationale, action taken, parameters) is written to the `agent_decisions` table and the `PipelineState.decision_log`, making post-run debugging reproducible without re-running GEE.
+- **Logfire observability**: `logfire.instrument_pydantic_ai()` auto-instruments all tool calls; `logfire.info()` events fire at agent entry so each stage is visible in real time rather than only on completion.
 
 ---
 
