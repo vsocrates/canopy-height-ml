@@ -81,10 +81,10 @@ def _load_shots(run_id: str) -> tuple[gpd.GeoDataFrame, gpd.GeoDataFrame]:
 
 
 def _try_add_basemap(ax, crs) -> None:
-    """Add satellite basemap; silently skip if contextily is unavailable."""
+    """Add basemap; silently skip if contextily is unavailable or tiles fail."""
     try:
         import contextily as ctx
-        ctx.add_basemap(ax, crs=crs, source=ctx.providers.Esri.WorldImagery, zoom="auto")
+        ctx.add_basemap(ax, crs=crs, source=ctx.providers.CartoDB.Positron, zoom="auto")
     except Exception:
         pass
 
@@ -104,21 +104,21 @@ def _plot_shot_map(
     raw_wm = raw_gdf.to_crs("EPSG:3857") if not raw_gdf.empty else raw_gdf
     cleaned_wm = cleaned_gdf.to_crs("EPSG:3857") if not cleaned_gdf.empty else cleaned_gdf
 
-    _try_add_basemap(ax, crs="EPSG:3857")
-
     if not raw_wm.empty:
-        raw_wm.plot(ax=ax, color="lightgrey", markersize=4, alpha=0.5, label="raw shots")
+        raw_wm.plot(ax=ax, color="lightgrey", markersize=8, alpha=0.4, label="raw shots")
 
     if not cleaned_wm.empty:
         cleaned_wm.plot(
             ax=ax,
             column="rh98",
             cmap="YlGn",
-            markersize=12,
+            markersize=20,
             alpha=0.85,
             legend=True,
             legend_kwds={"label": "rh98 (m)", "shrink": 0.6},
         )
+
+    _try_add_basemap(ax, crs="EPSG:3857")
 
     ax.set_title("GEDI Shots — Raw (grey) vs. Cleaned (rh98)", fontsize=13)
     ax.set_axis_off()
@@ -146,15 +146,15 @@ def _plot_fold_map(cleaned_gdf: gpd.GeoDataFrame, out: Path) -> Path:
         return path
 
     cleaned_wm = cleaned_gdf.to_crs("EPSG:3857")
-    _try_add_basemap(ax, crs="EPSG:3857")
 
     n_folds = int(cleaned_wm["fold"].max()) + 1
     cmap = plt.get_cmap("tab10", n_folds)
     for fold_id in range(n_folds):
         subset = cleaned_wm[cleaned_wm["fold"] == fold_id]
         label = "test" if fold_id == 0 else f"fold {fold_id}"
-        subset.plot(ax=ax, color=cmap(fold_id), markersize=10, alpha=0.85, label=label)
+        subset.plot(ax=ax, color=cmap(fold_id), markersize=20, alpha=0.85, label=label)
 
+    _try_add_basemap(ax, crs="EPSG:3857")
     ax.legend(title="Fold", loc="lower right", fontsize=9)
     ax.set_title("Spatial CV Fold Assignment (fold 0 = test)", fontsize=13)
     ax.set_axis_off()
