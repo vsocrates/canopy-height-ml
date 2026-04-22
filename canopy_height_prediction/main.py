@@ -14,6 +14,7 @@ import argparse
 import asyncio
 import json
 import uuid
+from pathlib import Path
 
 import logfire
 
@@ -66,6 +67,12 @@ async def _run(args: argparse.Namespace) -> None:
 
     _print_summary(state)
 
+    if args.save_figs and state.qa_passed:
+        from canopy_height_prediction.plots import generate_pipeline_figures
+        fig_paths = generate_pipeline_figures(state.run_id, Path(args.save_figs))
+        for p in fig_paths:
+            print(f"Figure: {p}")
+
     if args.output:
         with open(args.output, "w") as fh:
             json.dump(
@@ -101,6 +108,8 @@ def main() -> None:
     parser.add_argument("--run-id", default=None, help="Optional run ID (auto-generated if omitted)")
     parser.add_argument("--n-folds", type=int, default=5, help="Number of spatial CV folds (default: 5)")
     parser.add_argument("--output", default=None, metavar="PATH", help="Write JSON summary to this file")
+    parser.add_argument("--save-figs", default=None, metavar="DIR",
+                        help="Write diagnostic PNG figures to this directory (only when QA passes)")
 
     args = parser.parse_args()
     asyncio.run(_run(args))
