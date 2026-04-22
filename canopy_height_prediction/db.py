@@ -17,6 +17,8 @@ from sqlalchemy import (
     Text,
     create_engine,
 )
+from typing import Optional
+
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
 
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///pipeline.db")
@@ -70,6 +72,7 @@ class GediShotCleaned(Base):
     b12: Mapped[float] = mapped_column(Float, nullable=True)
     ndvi: Mapped[float] = mapped_column(Float, nullable=True)
     evi: Mapped[float] = mapped_column(Float, nullable=True)
+    scl_valid_obs: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     fold: Mapped[int] = mapped_column(Integer, nullable=True)
     split: Mapped[str] = mapped_column(String, nullable=True)
 
