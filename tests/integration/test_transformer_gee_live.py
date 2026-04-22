@@ -112,7 +112,8 @@ def test_extract_sentinel_bands_returns_expected_keys(seeded_db, monkeypatch):
     result = extract_sentinel_bands(MockCtx(deps))
 
     assert "error" not in result
-    assert result["n_shots"] == len(SEED_SHOTS)
+    assert result["n_shots_sampled"] == len(SEED_SHOTS)
+    assert result["n_shots_total_accepted"] == len(SEED_SHOTS)
     assert "n_matched" in result
     assert "nan_rate_pct" in result
     assert "valid_obs_below_threshold_pct" in result

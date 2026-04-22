@@ -911,6 +911,12 @@ async def run_ingestor(ctx: RunContext[OrchestratorDeps]) -> dict:
         deps=ingestor_deps,
     )
     d = result.output
+    if deps.state is not None:
+        deps.state.raw_shots = d.raw_shots
+        deps.state.accepted_shots = d.accepted_shots
+        deps.state.ingestor_passed = d.passed
+        deps.state.ingestor_rationale = d.rationale
+        deps.state.ingestor_recommended_action = d.recommended_action
     return {
         "passed": d.passed,
         "sensitivity_min": d.sensitivity_min,
@@ -947,6 +953,12 @@ async def run_transformer(ctx: RunContext[OrchestratorDeps]) -> dict:
         deps=transformer_deps,
     )
     d = result.output
+    if deps.state is not None:
+        deps.state.cv_block_size_km = d.cv_block_size_km
+        deps.state.n_folds = d.n_folds
+        deps.state.transformer_passed = d.passed
+        deps.state.transformer_rationale = d.rationale
+        deps.state.transformer_recommended_action = d.recommended_action
     return {
         "passed": d.passed,
         "cv_block_size_km": d.cv_block_size_km,
@@ -976,6 +988,11 @@ async def run_qa(ctx: RunContext[OrchestratorDeps]) -> dict:
         deps=qa_deps,
     )
     d = result.output
+    if deps.state is not None:
+        deps.state.qa_passed = d.passed
+        deps.state.qa_rationale = d.rationale
+        deps.state.qa_issues = d.issues
+        deps.state.qa_recommended_action = d.recommended_action
     return {
         "passed": d.passed,
         "issues": d.issues,

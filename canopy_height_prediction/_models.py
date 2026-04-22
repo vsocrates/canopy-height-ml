@@ -1,7 +1,10 @@
 from dataclasses import dataclass, field
-from typing import Literal, Optional
+from typing import TYPE_CHECKING, Literal, Optional
 
 from pydantic import BaseModel, Field
+
+if TYPE_CHECKING:
+    from canopy_height_prediction.state import PipelineState
 
 
 # ---------------------------------------------------------------------------
@@ -147,6 +150,9 @@ class OrchestratorDeps:
     n_folds: int = 5
     min_shot_density_per_km2: float = 1.0
     gee_project: str = "canopy-height-ml"
+    # Shared state reference — orchestrator tools write sub-stage results back
+    # so PipelineState stays in sync without requiring runners to be called directly.
+    state: Optional["PipelineState"] = field(default=None, repr=False)
 
 
 class OrchestratorDecision(BaseModel):

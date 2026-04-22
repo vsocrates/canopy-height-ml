@@ -26,7 +26,7 @@ from canopy_height_prediction.state import PipelineState
 
 
 async def run_ingestor(state: PipelineState) -> PipelineState:
-    logfire.event("agent.ingestor.start", run_id=state.run_id)
+    logfire.info("agent.ingestor.start", run_id=state.run_id)
     with logfire.span("runner.ingestor", run_id=state.run_id):
         deps = IngestorDeps(
             run_id=state.run_id,
@@ -50,7 +50,7 @@ async def run_ingestor(state: PipelineState) -> PipelineState:
 
 
 async def run_transformer(state: PipelineState) -> PipelineState:
-    logfire.event("agent.transformer.start", run_id=state.run_id)
+    logfire.info("agent.transformer.start", run_id=state.run_id)
     with logfire.span("runner.transformer", run_id=state.run_id):
         deps = TransformerDeps(
             run_id=state.run_id,
@@ -75,7 +75,7 @@ async def run_transformer(state: PipelineState) -> PipelineState:
 
 
 async def run_qa(state: PipelineState) -> PipelineState:
-    logfire.event("agent.qa.start", run_id=state.run_id)
+    logfire.info("agent.qa.start", run_id=state.run_id)
     with logfire.span("runner.qa", run_id=state.run_id):
         deps = QADeps(
             run_id=state.run_id,
@@ -95,7 +95,7 @@ async def run_qa(state: PipelineState) -> PipelineState:
 
 
 async def run_orchestrator(state: PipelineState) -> PipelineState:
-    logfire.event("agent.orchestrator.start", run_id=state.run_id)
+    logfire.info("agent.orchestrator.start", run_id=state.run_id)
     with logfire.span("runner.orchestrator", run_id=state.run_id):
         deps = OrchestratorDeps(
             run_id=state.run_id,
@@ -103,6 +103,8 @@ async def run_orchestrator(state: PipelineState) -> PipelineState:
             date_start=state.date_range[0],
             date_end=state.date_range[1],
             replan_count=state.replan_count,
+            n_folds=state.n_folds,
+            state=state,
         )
         result = await orchestrator_agent.run(
             "Run the full canopy height estimation pipeline: ingest, transform, and validate.",
@@ -110,16 +112,9 @@ async def run_orchestrator(state: PipelineState) -> PipelineState:
         )
         d = result.output
         state.replan_count = d.replan_count
-        # Write back any parameter updates the orchestrator settled on
         if d.final_date_start:
             state.date_range = (d.final_date_start, state.date_range[1])
         if d.final_date_end:
             state.date_range = (state.date_range[0], d.final_date_end)
-        # Sub-agent pass/fail flags are only set when runners are called directly;
-        # when the orchestrator owns the run, derive them from its final decision.
-        if d.action == "proceed":
-            state.ingestor_passed = True
-            state.transformer_passed = True
-            state.qa_passed = True
         state.decision_log.append({"agent": "orchestrator", **d.model_dump()})
     return state
