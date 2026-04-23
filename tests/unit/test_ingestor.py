@@ -6,7 +6,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from canopy_height_prediction.agents import IngestorDecision, IngestorDeps, ingestor_agent
+from canopy_height_prediction._models import IngestorDecision, IngestorDeps
+from canopy_height_prediction.agents.ingestor import ingestor_agent
 from canopy_height_prediction.state import PipelineState
 
 

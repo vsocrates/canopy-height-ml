@@ -18,20 +18,16 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from canopy_height_prediction.agents import (
+from canopy_height_prediction._models import (
     IngestorDecision,
     OrchestratorDeps,
     QADecision,
     TransformerDecision,
-    abort,
-    ingestor_agent,
-    qa_agent,
-    replan,
-    run_ingestor,
-    run_qa,
-    run_transformer,
-    transformer_agent,
 )
+from canopy_height_prediction.agents.ingestor import ingestor_agent
+from canopy_height_prediction.agents.orchestrator import abort, replan, run_ingestor, run_qa, run_transformer
+from canopy_height_prediction.agents.qa import qa_agent
+from canopy_height_prediction.agents.transformer import transformer_agent
 from canopy_height_prediction.db import Base, PipelineRun
 
 

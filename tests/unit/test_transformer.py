@@ -6,7 +6,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from canopy_height_prediction.agents import TransformerDecision, TransformerDeps, transformer_agent
+from canopy_height_prediction._models import TransformerDecision, TransformerDeps
+from canopy_height_prediction.agents.transformer import transformer_agent
 from canopy_height_prediction.state import PipelineState
 
 

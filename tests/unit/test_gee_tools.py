@@ -13,15 +13,10 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from canopy_height_prediction.agents import (
-    GediQueryResult,
-    IngestorDeps,
-    Sentinel2QueryResult,
-    query_gedi_earthengine,
-    query_sentinel2,
-)
+from canopy_height_prediction._models import GediQueryResult, IngestorDeps, Sentinel2QueryResult
+from canopy_height_prediction.agents.ingestor import query_gedi_earthengine, query_sentinel2
 
-GEDI_PATCH = "canopy_height_prediction.agents._load_gedi_shots"
+GEDI_PATCH = "canopy_height_prediction.agents.ingestor._load_gedi_shots"
 
 FAKE_HISTOGRAM = [[i * 6.0, 100 + i * 10] for i in range(10)]
 FAKE_TOTAL_SHOTS = 1000

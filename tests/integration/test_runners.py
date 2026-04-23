@@ -14,12 +14,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from canopy_height_prediction.agents import (
-    ingestor_agent,
-    orchestrator_agent,
-    qa_agent,
-    transformer_agent,
-)
+from canopy_height_prediction.agents.ingestor import ingestor_agent
+from canopy_height_prediction.agents.orchestrator import orchestrator_agent
+from canopy_height_prediction.agents.qa import qa_agent
+from canopy_height_prediction.agents.transformer import transformer_agent
 from canopy_height_prediction.runners import run_ingestor, run_orchestrator, run_qa, run_transformer
 from canopy_height_prediction.state import PipelineState
 

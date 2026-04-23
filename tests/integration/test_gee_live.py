@@ -21,13 +21,8 @@ os.environ.setdefault("ANTHROPIC_API_KEY", "test-key-placeholder")
 
 import ee
 
-from canopy_height_prediction.agents import (
-    GediQueryResult,
-    IngestorDeps,
-    Sentinel2QueryResult,
-    query_gedi_earthengine,
-    query_sentinel2,
-)
+from canopy_height_prediction._models import GediQueryResult, IngestorDeps, Sentinel2QueryResult
+from canopy_height_prediction.agents.ingestor import query_gedi_earthengine, query_sentinel2
 
 # Small AOI: ~100 km² in Tahoe National Forest
 SMALL_AOI = (-120.3, 39.3, -120.2, 39.4)
