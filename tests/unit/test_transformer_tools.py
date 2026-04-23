@@ -15,14 +15,9 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from canopy_height_prediction.agents import (
-    MIN_VALID_OBS,
-    TransformerDeps,
-    TransformerDecision,
-    _estimate_variogram_range,
-    assign_folds,
-    generate_spatial_blocks,
-)
+from canopy_height_prediction._helpers import MIN_VALID_OBS, _estimate_variogram_range
+from canopy_height_prediction._models import TransformerDecision, TransformerDeps
+from canopy_height_prediction.agents.transformer import assign_folds, generate_spatial_blocks
 
 
 class MockCtx:

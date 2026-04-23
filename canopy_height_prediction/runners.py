@@ -12,16 +12,11 @@ No logic, no EE calls, no DB writes — those all live in agent tools.
 
 import logfire
 
-from canopy_height_prediction.agents import (
-    IngestorDeps,
-    OrchestratorDeps,
-    QADeps,
-    TransformerDeps,
-    ingestor_agent,
-    orchestrator_agent,
-    qa_agent,
-    transformer_agent,
-)
+from canopy_height_prediction._models import IngestorDeps, OrchestratorDeps, QADeps, TransformerDeps
+from canopy_height_prediction.agents.ingestor import ingestor_agent
+from canopy_height_prediction.agents.orchestrator import orchestrator_agent
+from canopy_height_prediction.agents.qa import qa_agent
+from canopy_height_prediction.agents.transformer import transformer_agent
 from canopy_height_prediction.state import PipelineState
 
 

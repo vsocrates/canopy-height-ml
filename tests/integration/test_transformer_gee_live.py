@@ -23,11 +23,9 @@ import ee
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from canopy_height_prediction.agents import (
-    MIN_VALID_OBS,
-    TransformerDeps,
-    extract_sentinel_bands,
-)
+from canopy_height_prediction._helpers import MIN_VALID_OBS
+from canopy_height_prediction._models import TransformerDeps
+from canopy_height_prediction.agents.transformer import extract_sentinel_bands
 from canopy_height_prediction.db import Base, GediShotCleaned, GediShotRaw, PipelineRun
 
 SMALL_AOI = (-120.3, 39.3, -120.2, 39.4)

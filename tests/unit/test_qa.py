@@ -15,9 +15,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from canopy_height_prediction.agents import (
-    QADecision,
-    QADeps,
+from canopy_height_prediction._models import QADecision, QADeps
+from canopy_height_prediction.agents.qa import (
     check_feature_distributions,
     check_fold_balance,
     check_target_range,

@@ -6,13 +6,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from canopy_height_prediction.agents import (
-    OrchestratorDecision,
-    OrchestratorDeps,
-    abort,
-    orchestrator_agent,
-    replan,
-)
+from canopy_height_prediction._models import OrchestratorDecision, OrchestratorDeps
+from canopy_height_prediction.agents.orchestrator import abort, orchestrator_agent, replan
 
 
 class MockCtx:
